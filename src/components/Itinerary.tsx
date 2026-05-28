@@ -7,6 +7,16 @@ const IconMap: Record<string, any> = {
 };
 
 const getIcon = (name: string) => IconMap[name] || Info;
+
+const renderTitle = (title: string) => {
+  if (!title) return '';
+  const list = [];
+  for (let i = 0; i < title.length; i += 13) {
+    list.push(title.substring(i, i + 13));
+  }
+  return list.join('\n');
+};
+
 import { DayPlan, ItineraryDetail } from '../types';
 import { cn } from '../lib/utils';
 
@@ -79,7 +89,7 @@ export const Itinerary: React.FC<ItineraryProps> = ({
                       onChange={(e) => onUpdateDayTitle(day.id, e.target.value)}
                     />
                   ) : (
-                    <h3 className="text-[17px] font-bold text-slate-900 leading-tight truncate">{day.title}</h3>
+                    <h3 className="text-[17px] font-bold text-slate-900 leading-tight whitespace-pre-wrap break-all">{renderTitle(day.title)}</h3>
                   )}
                   
                   {/* Transport Icons in Collapsed View */}

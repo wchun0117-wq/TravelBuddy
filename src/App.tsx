@@ -3,9 +3,9 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import { useState } from 'react';
+import { useState, useRef, ChangeEvent } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { Edit2, Check, Plus, Users, X, UserPlus, Shield, ShieldAlert, Link2, Globe, ArrowLeft, Sparkles, Camera, Search } from 'lucide-react';
+import { Edit2, Check, Plus, Users, X, UserPlus, Shield, ShieldAlert, Link2, Globe, ArrowLeft, Sparkles, Camera, Search, FileSpreadsheet, FileText, Image } from 'lucide-react';
 import { BottomNav } from './components/BottomNav';
 import { Itinerary } from './components/Itinerary';
 import { Checklist } from './components/Checklist';
@@ -13,7 +13,7 @@ import { malaysiaTrip as initialTrip } from './data/malaysiaTrip';
 import { cn } from './lib/utils';
 import { Trip, DayPlan, ItineraryDetail, Collaborator, UserRole, PackingCategory } from './types';
 
-import { generateItinerary } from './services/geminiService';
+import { generateItinerary, generateItineraryFromImage, parseExcel, parseWord } from './services/geminiService';
 
 const DEFAULT_PACKING_LIST = [
   { category: "证件类", items: ["护照", "身份证", "Visa (需提前)", "入境卡 (需提前)", "机酒行程单 (需提前)", "保险 (需提前)"] },
@@ -33,6 +33,21 @@ const getInitialPackingCategories = () => DEFAULT_PACKING_LIST.map((cat, idx) =>
     completed: false
   }))
 }));
+
+const mapAiPackingList = (aiPackingList?: any[]) => {
+  if (!aiPackingList || !Array.isArray(aiPackingList) || aiPackingList.length === 0) {
+    return getInitialPackingCategories();
+  }
+  return aiPackingList.map((cat: any, idx: number) => ({
+    id: `cat-${idx}-${Date.now()}`,
+    name: cat.category || cat.name || "其他准备",
+    items: (Array.isArray(cat.items) ? cat.items : []).map((text: any, i: number) => ({
+      id: `item-${idx}-${i}-${Date.now()}`,
+      text: String(text),
+      completed: false
+    }))
+  }));
+};
 
 export default function App() {
   const [view, setView] = useState<'auth' | 'home' | 'detail'>('auth');
@@ -56,6 +71,90 @@ export default function App() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [currentUserRole] = useState<UserRole>('admin');
   const [currentUserId] = useState('user-1'); // Simulated current user ID
+
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [importType, setImportType] = useState<'image' | 'excel' | 'word' | null>(null);
+  const [importStatus, setImportStatus] = useState<string>('');
+
+  const triggerFileInput = (type: 'image' | 'excel' | 'word') => {
+    if (fileInputRef.current) {
+      setImportType(type);
+      if (type === 'image') {
+        fileInputRef.current.accept = "image/*";
+      } else if (type === 'excel') {
+        fileInputRef.current.accept = ".xlsx, .xls";
+      } else if (type === 'word') {
+        fileInputRef.current.accept = ".docx, .doc";
+      }
+      fileInputRef.current.value = ''; // clear
+      fileInputRef.current.click();
+    }
+  };
+
+  const fileToBase64 = (file: File): Promise<string> => {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.readAsDataURL(file);
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = error => reject(error);
+    });
+  };
+
+  const handleFileChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsGenerating(true);
+    setImportStatus('正在读取上传的文件...');
+    try {
+      let resultTrip: any = null;
+
+      if (importType === 'image') {
+        setImportStatus('正在解析图片行程 (OCR)...');
+        const base64 = await fileToBase64(file);
+        const base64Clean = base64.split(',')[1] || base64;
+        resultTrip = await generateItineraryFromImage(base64Clean, file.type);
+      } else if (importType === 'excel') {
+        setImportStatus('正在读取Excel数据...');
+        const text = await parseExcel(file);
+        if (!text.trim()) throw new Error("Excel文件内容为空");
+        setImportStatus('正在解析并生成智能行程...');
+        resultTrip = await generateItinerary(`以下是从行程Excel文件中提取的内容，请基于它生成详细的行程计划并保持模板格式一致:\n${text}`);
+      } else if (importType === 'word') {
+        setImportStatus('正在读取Word文档内容...');
+        const text = await parseWord(file);
+        if (!text.trim()) throw new Error("Word文档内容为空");
+        setImportStatus('正在解析并生成智能行程...');
+        resultTrip = await generateItinerary(`以下是从行程Word文件中提取的内容，请基于它生成详细的行程计划并保持模板格式一致:\n${text}`);
+      }
+
+      if (resultTrip) {
+        setImportStatus('正在初始化计划模板...');
+        const newTrip: Trip = {
+          ...resultTrip,
+          id: `trip-${Date.now()}`,
+          collaborators: [
+            { id: '1', name: '我 (管理员)', avatar: 'https://picsum.photos/seed/user1/100/100', role: 'admin', email: 'admin@example.com' }
+          ],
+          packingList: {
+            [currentUserId]: mapAiPackingList(resultTrip.packingList)
+          }
+        };
+
+        setTrips([newTrip, ...trips]);
+        setTrip(newTrip);
+        setView('detail');
+        setShowNewTripModal(false);
+      }
+    } catch (error: any) {
+      console.error(error);
+      alert(`一键导入失败: ${error.message || error}`);
+    } finally {
+      setIsGenerating(false);
+      setImportType(null);
+      setImportStatus('');
+    }
+  };
 
   const handleUpdateItinerary = (newItinerary: DayPlan[]) => {
     const sortedItinerary = newItinerary.map(day => ({
@@ -148,6 +247,12 @@ export default function App() {
     setTrips(trips.map(t => t.id === trip.id ? { ...t, packingList: newPackingList } : t));
   };
 
+  const handleUpdateBudget = (newBudget: number) => {
+    const updatedTrip = { ...trip, budget: newBudget };
+    setTrip(updatedTrip);
+    setTrips(trips.map(t => t.id === trip.id ? updatedTrip : t));
+  };
+
   const currentUserPackingList = trip.packingList?.[currentUserId] || getInitialPackingCategories();
 
   const canEdit = currentUserRole === 'admin' || currentUserRole === 'editor';
@@ -164,7 +269,7 @@ export default function App() {
           { id: '1', name: '我 (管理员)', avatar: 'https://picsum.photos/seed/user1/100/100', role: 'admin', email: 'admin@example.com' }
         ],
         packingList: {
-          [currentUserId]: getInitialPackingCategories()
+          [currentUserId]: mapAiPackingList(generatedTrip.packingList)
         }
       };
       setTrips([newTrip, ...trips]);
@@ -214,7 +319,7 @@ export default function App() {
                     <div className="w-20 h-20 bg-blue-600 rounded-[32px] flex items-center justify-center mb-8 shadow-2xl shadow-blue-500/40">
                       <Globe size={40} className="text-white" />
                     </div>
-                    <h1 className="text-[48px] font-black tracking-[0.2em] text-white leading-none mb-4">
+                    <h1 className="text-3xl font-black tracking-[0.12em] text-white leading-none mb-4">
                       TRAVEL<span className="text-blue-500">BUDDY</span>
                     </h1>
                     <p className="text-slate-400 text-sm font-medium tracking-[0.3em] uppercase">智能协作旅行助手</p>
@@ -440,10 +545,33 @@ export default function App() {
                 animate={{ opacity: 1 }}
                 className="p-6 space-y-6"
               >
-                <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100">
-                  <h3 className="text-lg font-black mb-4">旅行总预算</h3>
-                  <div className="text-3xl font-black text-blue-600">¥ 12,500</div>
-                  <p className="text-slate-400 text-xs mt-2">包含机票、酒店及日常开销</p>
+                <div className="bg-white rounded-3xl p-6 shadow-sm border border-slate-100 p-6">
+                  <h3 className="text-lg font-black mb-4 flex items-center justify-between">
+                    <span>旅行总预算</span>
+                    {isEditMode && (
+                      <span className="text-[10px] font-black text-blue-500 bg-blue-50 px-2 py-1 rounded-full animate-pulse">
+                        编辑状态
+                      </span>
+                    )}
+                  </h3>
+                  {isEditMode ? (
+                    <div className="flex items-center gap-2 border-b-2 border-blue-500 pb-1">
+                      <span className="text-3xl font-black text-blue-600">¥</span>
+                      <input
+                        id="budget-input"
+                        type="number"
+                        value={trip.budget ?? 12500}
+                        onChange={(e) => handleUpdateBudget(Number(e.target.value) || 0)}
+                        className="text-3xl font-black text-blue-600 focus:outline-none w-full bg-transparent"
+                        placeholder="请输入预算金额"
+                      />
+                    </div>
+                  ) : (
+                    <div className="text-3xl font-black text-blue-600">¥ {(trip.budget ?? 12500).toLocaleString()}</div>
+                  )}
+                  <p className="text-slate-400 text-xs mt-2">
+                    {isEditMode ? "可直接输入修改全新预算金额" : "包含机票、酒店及日常开销（点击顶部“编辑”按钮即可进行修改）"}
+                  </p>
                 </div>
 
                 {/* Admin Only Section */}
@@ -460,7 +588,7 @@ export default function App() {
                       </div>
                       <div className="flex justify-between items-center">
                         <span className="text-sm opacity-80">剩余额度</span>
-                        <span className="font-bold">¥ 1,800</span>
+                        <span className="font-bold">¥ {Math.max(0, (trip.budget ?? 12500) - 3200).toLocaleString()}</span>
                       </div>
                     </div>
                   </div>
@@ -508,7 +636,15 @@ export default function App() {
                   </button>
                 </div>
 
-                <div className="space-y-6">
+                <div className="space-y-6 relative">
+                  {/* Hidden file input */}
+                  <input 
+                    type="file" 
+                    ref={fileInputRef} 
+                    onChange={handleFileChange} 
+                    style={{ display: 'none' }} 
+                  />
+
                   {/* AI Create Section */}
                   <div className="space-y-4">
                     <div className="flex items-center gap-2 text-blue-600">
@@ -539,19 +675,20 @@ export default function App() {
                   <div className="space-y-4">
                     <div className="flex items-center gap-2 text-slate-400">
                       <Globe size={18} />
-                      <span className="text-xs font-black uppercase tracking-widest">一键导入</span>
+                      <span className="text-xs font-black uppercase tracking-widest">一键导入支持格式</span>
                     </div>
                     <div className="grid grid-cols-3 gap-4">
                       {[
-                        { label: '图片/OCR', icon: Camera },
-                        { label: 'Excel', icon: Shield },
-                        { label: 'Word', icon: Link2 }
+                        { label: '图片/OCR', icon: Camera, type: 'image' },
+                        { label: 'Excel 行程', icon: FileSpreadsheet, type: 'excel' },
+                        { label: 'Word 攻略', icon: FileText, type: 'word' }
                       ].map((item, idx) => (
                         <button 
                           key={idx}
+                          id={`import-btn-${item.type}`}
                           disabled={isGenerating}
-                          onClick={() => alert('模拟导入功能：解析中...')}
-                          className="flex flex-col items-center justify-center gap-2 p-4 bg-slate-50 rounded-3xl hover:bg-blue-50 hover:text-blue-600 transition-all group disabled:opacity-50"
+                          onClick={() => triggerFileInput(item.type as 'image' | 'excel' | 'word')}
+                          className="flex flex-col items-center justify-center gap-2 p-4 bg-slate-50 rounded-3xl hover:bg-blue-50 hover:text-blue-600 transition-all group disabled:opacity-50 cursor-pointer"
                         >
                           <item.icon size={20} className="text-slate-400 group-hover:text-blue-500" />
                           <span className="text-[10px] font-bold">{item.label}</span>
@@ -559,6 +696,20 @@ export default function App() {
                       ))}
                     </div>
                   </div>
+
+                  {/* Premium status loader during generation */}
+                  {isGenerating && (
+                    <div className="absolute inset-x-0 -bottom-8 -top-8 bg-white/95 backdrop-blur-sm rounded-b-[40px] z-50 flex flex-col items-center justify-center p-8 text-center space-y-4 h-[calc(100%+64px)]">
+                      <div className="relative">
+                        <div className="w-16 h-16 border-4 border-blue-500 border-t-transparent rounded-full animate-spin" />
+                        <Sparkles size={24} className="text-blue-500 absolute inset-0 m-auto animate-pulse" />
+                      </div>
+                      <div>
+                        <p className="text-base font-black text-slate-800">{importStatus || '智能规划完美行程中...'}</p>
+                        <p className="text-xs text-slate-400 mt-1.5">AI正在深度解析文档并匹配 Unsplash 壁纸...</p>
+                      </div>
+                    </div>
+                  )}
                 </div>
               </motion.div>
             </div>

@@ -47,4 +47,5 @@ export interface Trip {
   collaborators: Collaborator[];
   packingList?: Record<string, PackingCategory[]>; // userId -> categories
   expenses?: any[];
+  budget?: number;
 }

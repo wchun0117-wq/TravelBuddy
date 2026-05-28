@@ -5,6 +5,7 @@ export const malaysiaTrip: Trip = {
   name: '马来西亚之旅（4.25-5.5）',
   cover: 'https://images.unsplash.com/photo-1567157577867-05ccb1388e66?auto=format&fit=crop&q=80&w=400',
   status: '进行中',
+  budget: 12500,
   collaborators: [
     { id: '1', name: '我 (管理员)', avatar: 'https://picsum.photos/seed/user1/100/100', role: 'admin', email: 'admin@example.com' },
     { id: '2', name: '小明', avatar: 'https://picsum.photos/seed/user2/100/100', role: 'editor', email: 'xiaoming@example.com' },
