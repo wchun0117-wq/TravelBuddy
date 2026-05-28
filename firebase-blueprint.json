@@ -1,0 +1,92 @@
+{
+  "entities": {
+    "User": {
+      "title": "User",
+      "description": "用户信息",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "displayName": { "type": "string" },
+        "email": { "type": "string", "format": "email" },
+        "photoURL": { "type": "string" }
+      },
+      "required": ["uid", "email"]
+    },
+    "Trip": {
+      "title": "Trip",
+      "description": "旅行计划主文档",
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "startDate": { "type": "string", "format": "date" },
+        "endDate": { "type": "string", "format": "date" },
+        "ownerId": { "type": "string" },
+        "collaborators": { "type": "array", "items": { "type": "string" } },
+        "createdAt": { "type": "string", "format": "date-time" }
+      },
+      "required": ["name", "ownerId"]
+    },
+    "ItineraryItem": {
+      "title": "ItineraryItem",
+      "description": "具体的行程项",
+      "type": "object",
+      "properties": {
+        "time": { "type": "string" },
+        "title": { "type": "string" },
+        "description": { "type": "string" },
+        "type": { "type": "string", "enum": ["transport", "activity", "food", "hotel", "other"] },
+        "transportType": { "type": "string", "enum": ["plane", "car", "boat", "train"] },
+        "location": { "type": "string" },
+        "aiExplanation": { "type": "string" }
+      },
+      "required": ["time", "title", "type"]
+    },
+    "ChecklistItem": {
+      "title": "ChecklistItem",
+      "description": "物品清单项",
+      "type": "object",
+      "properties": {
+        "text": { "type": "string" },
+        "completed": { "type": "boolean" },
+        "category": { "type": "string" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["text", "completed"]
+    },
+    "Expense": {
+      "title": "Expense",
+      "description": "费用记录",
+      "type": "object",
+      "properties": {
+        "title": { "type": "string" },
+        "amount": { "type": "number" },
+        "payerId": { "type": "string" },
+        "participants": { "type": "array", "items": { "type": "string" } },
+        "date": { "type": "string", "format": "date" }
+      },
+      "required": ["title", "amount", "payerId"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "用户个人资料"
+    },
+    "/trips/{tripId}": {
+      "schema": "Trip",
+      "description": "旅行计划基本信息"
+    },
+    "/trips/{tripId}/itinerary/{itemId}": {
+      "schema": "ItineraryItem",
+      "description": "行程项列表"
+    },
+    "/trips/{tripId}/checklist/{itemId}": {
+      "schema": "ChecklistItem",
+      "description": "物品清单"
+    },
+    "/trips/{tripId}/expenses/{expenseId}": {
+      "schema": "Expense",
+      "description": "费用记录列表"
+    }
+  }
+}

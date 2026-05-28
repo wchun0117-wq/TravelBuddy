@@ -1,0 +1,62 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // ===============================================================
+    // Helper Functions
+    // ===============================================================
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+    
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+    
+    function isTripOwner(tripId) {
+      return isAuthenticated() && get(/databases/$(database)/documents/trips/$(tripId)).data.ownerId == request.auth.uid;
+    }
+    
+    function isTripCollaborator(tripId) {
+      return isAuthenticated() && (
+        get(/databases/$(database)/documents/trips/$(tripId)).data.ownerId == request.auth.uid ||
+        request.auth.uid in get(/databases/$(database)/documents/trips/$(tripId)).data.collaborators
+      );
+    }
+
+    function isValidString(val, maxLen) {
+      return val is string && val.size() <= maxLen;
+    }
+
+    // ===============================================================
+    // Rules
+    // ===============================================================
+
+    // 用户资料：仅本人可读写
+    match /users/{userId} {
+      allow read, write: if isOwner(userId);
+    }
+
+    // 旅行计划主文档
+    match /trips/{tripId} {
+      allow read: if isTripCollaborator(tripId);
+      allow create: if isAuthenticated() && request.resource.data.ownerId == request.auth.uid;
+      allow update: if isTripOwner(tripId) || (isTripCollaborator(tripId) && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['collaborators']));
+      allow delete: if isTripOwner(tripId);
+      
+      // 子集合：行程、清单、费用
+      match /itinerary/{itemId} {
+        allow read, write: if isTripCollaborator(tripId);
+      }
+      
+      match /checklist/{itemId} {
+        allow read, write: if isTripCollaborator(tripId);
+      }
+      
+      match /expenses/{expenseId} {
+        allow read, write: if isTripCollaborator(tripId);
+      }
+    }
+  }
+}
